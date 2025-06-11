@@ -1,0 +1,1 @@
+FIXED_RESOLUTION_DBAR = 0.25 #change this value to modify vertical resolution in depth (dbar)
