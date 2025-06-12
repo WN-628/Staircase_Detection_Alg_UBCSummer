@@ -1,7 +1,7 @@
 import netCDF4 as netcdf
 import numpy as np
 
-from config import FIXED_RESOLUTION_DBAR
+from config import FIXED_RESOLUTION_METER
 
 def create_netcdf(filename,max_count):
   fh2 = netcdf.Dataset(filename,'w',format='NETCDF4')
@@ -10,7 +10,7 @@ def create_netcdf(filename,max_count):
   x1.long_name     = 'Profile'
   x1.standard_name = 'no'
   
-  pressure_levels = np.arange(0, 2000, FIXED_RESOLUTION_DBAR)
+  pressure_levels = np.arange(0, 2000, FIXED_RESOLUTION_METER)
   
   fh2.createDimension('pressure', len(pressure_levels))
   x1 = fh2.createVariable('pressure', 'f4', ('pressure'))
@@ -53,6 +53,17 @@ def create_netcdf(filename,max_count):
   x2.long_name     = 'Latitude of float'
   x2.standard_name = 'lat'
   x2.units         = 'degrees'
+  
+  # min and max temperature
+  x2 = fh2.createVariable('depth_max_T', np.float32, ('Nobs',), fill_value=np.nan)
+  x2.long_name = 'Depth of maximum temperature'
+  x2.standard_name = 'max_depth_T'
+  x2.units         = 'degrees Celsius'
+
+  x2 = fh2.createVariable('depth_min_T', np.float32, ('Nobs',), fill_value=np.nan)
+  x2.long_name = 'Depth of minimum temperature'
+  x2.standard_name = 'min_depth_T'
+  x2.units         = 'degrees Celsius'
 
   # other variables
   x2 = fh2.createVariable('ct','f4',('Nobs','pressure'),fill_value=0,zlib=True)
@@ -64,6 +75,27 @@ def create_netcdf(filename,max_count):
   x2.long_name     = 'Absolute Salinity'
   x2.standard_name = 'sa'
   x2.units         = 'g/kg'
+
+  # masks variables
+  x2 = fh2.createVariable('mask_gl',np.int32,('Nobs','pressure'),fill_value=0,zlib=True)
+  x2.long_name     = 'mask with sequences of gradient layers'
+  x2.standard_name = 'mask_gl'
+  x2.units         = ' '
+
+  x2 = fh2.createVariable('mask_ml',np.int32,('Nobs','pressure'),fill_value=0,zlib=True)
+  x2.long_name     = 'mask with sequences of mixed layers'
+  x2.standard_name = 'mask_ml'
+  x2.units         = ' '
+  
+  x2 = fh2.createVariable('mask_cl',np.int32,('Nobs','pressure'),fill_value=0,zlib=True)
+  x2.long_name     = 'mask with sequences of connecting layers'
+  x2.standard_name = 'mask_cl'
+  x2.units         = ' '
+  
+  x2 = fh2.createVariable('mask_sc',np.int32,('Nobs','pressure'),fill_value=0,zlib=True)
+  x2.long_name     = 'mask with sequences of staircase structure'
+  x2.standard_name = 'mask_sc'
+  x2.units         = ' '
 
   # mixed layers
   x2 = fh2.createVariable('ml_T','f4',('Nobs','mixed_layers'),fill_value=0,zlib=True)
@@ -132,44 +164,50 @@ def create_netcdf(filename,max_count):
   x2.standard_name = 'gl_R'
   x2.units         = ' '
 
-  x2 = fh2.createVariable('mask_gl_sf_layer',np.int32,('Nobs','gradient_layers'),fill_value=0,zlib=True)
-  x2.long_name     = 'mask with sequences of gradient layers in salt-finger regime'
-  x2.standard_name = 'mask_gl_sf_layer'
-  x2.units         = ' '
-
-  x2 = fh2.createVariable('mask_ml_sf_layer',np.int32,('Nobs','mixed_layers'),fill_value=0,zlib=True)
-  x2.long_name     = 'mask with sequences of mixed layers in salt-finger regime'
-  x2.standard_name = 'mask_ml_sf_layer'
-  x2.units         = ' '
-
-  x2 = fh2.createVariable('mask_gl_sf',np.int32,('Nobs','pressure'),fill_value=0,zlib=True)
-  x2.long_name     = 'big mask with sequences of gradient layers in salt-finger regime'
-  x2.standard_name = 'mask_gl_sf'
-  x2.units         = ' '
-
-  x2 = fh2.createVariable('mask_ml_sf',np.int32,('Nobs','pressure'),fill_value=0,zlib=True)
-  x2.long_name     = 'big mask with sequences of mixed layers in salt-finger regime'
-  x2.standard_name = 'mask_ml_sf'
-  x2.units         = ' '
-
-  x2 = fh2.createVariable('mask_gl_dc_layer',np.int32,('Nobs','gradient_layers'),fill_value=0,zlib=True)
-  x2.long_name     = 'mask with sequences of gradient layers in diffusive-convection regime'
-  x2.standard_name = 'mask_gl_dc_layer'
-  x2.units         = ' '
-
-  x2 = fh2.createVariable('mask_ml_dc_layer',np.int32,('Nobs','mixed_layers'),fill_value=0,zlib=True)
-  x2.long_name     = 'mask with sequences of mixed layers in diffusive-convection regime'
-  x2.standard_name = 'mask_ml_dc_layer'
-  x2.units         = ' '
-
-  x2 = fh2.createVariable('mask_gl_dc',np.int32,('Nobs','pressure'),fill_value=0,zlib=True)
-  x2.long_name     = 'big mask with sequences of gradient layers in diffusive-convection regime'
-  x2.standard_name = 'mask_gl_dc'
-  x2.units         = ' '
-
-  x2 = fh2.createVariable('mask_ml_dc',np.int32,('Nobs','pressure'),fill_value=0,zlib=True)
-  x2.long_name     = 'big mask with sequences of mixed layers in diffusive-convection regime'
-  x2.standard_name = 'mask_ml_dc'
-  x2.units         = ' '
-
   fh2.close()
+
+
+
+
+
+  # x2 = fh2.createVariable('mask_gl_sf_layer',np.int32,('Nobs','gradient_layers'),fill_value=0,zlib=True)
+  # x2.long_name     = 'mask with sequences of gradient layers in salt-finger regime'
+  # x2.standard_name = 'mask_gl_sf_layer'
+  # x2.units         = ' '
+
+  # x2 = fh2.createVariable('mask_ml_sf_layer',np.int32,('Nobs','mixed_layers'),fill_value=0,zlib=True)
+  # x2.long_name     = 'mask with sequences of mixed layers in salt-finger regime'
+  # x2.standard_name = 'mask_ml_sf_layer'
+  # x2.units         = ' '
+
+  # x2 = fh2.createVariable('mask_gl_sf',np.int32,('Nobs','pressure'),fill_value=0,zlib=True)
+  # x2.long_name     = 'big mask with sequences of gradient layers in salt-finger regime'
+  # x2.standard_name = 'mask_gl_sf'
+  # x2.units         = ' '
+
+  # x2 = fh2.createVariable('mask_ml_sf',np.int32,('Nobs','pressure'),fill_value=0,zlib=True)
+  # x2.long_name     = 'big mask with sequences of mixed layers in salt-finger regime'
+  # x2.standard_name = 'mask_ml_sf'
+  # x2.units         = ' '
+
+  # x2 = fh2.createVariable('mask_gl_dc_layer',np.int32,('Nobs','gradient_layers'),fill_value=0,zlib=True)
+  # x2.long_name     = 'mask with sequences of gradient layers in diffusive-convection regime'
+  # x2.standard_name = 'mask_gl_dc_layer'
+  # x2.units         = ' '
+
+  # x2 = fh2.createVariable('mask_ml_dc_layer',np.int32,('Nobs','mixed_layers'),fill_value=0,zlib=True)
+  # x2.long_name     = 'mask with sequences of mixed layers in diffusive-convection regime'
+  # x2.standard_name = 'mask_ml_dc_layer'
+  # x2.units         = ' '
+
+  # x2 = fh2.createVariable('mask_gl_dc',np.int32,('Nobs','pressure'),fill_value=0,zlib=True)
+  # x2.long_name     = 'big mask with sequences of gradient layers in diffusive-convection regime'
+  # x2.standard_name = 'mask_gl_dc'
+  # x2.units         = ' '
+
+  # x2 = fh2.createVariable('mask_ml_dc',np.int32,('Nobs','pressure'),fill_value=0,zlib=True)
+  # x2.long_name     = 'big mask with sequences of mixed layers in diffusive-convection regime'
+  # x2.standard_name = 'mask_ml_dc'
+  # x2.units         = ' '
+
+
