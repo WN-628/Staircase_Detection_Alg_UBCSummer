@@ -4,19 +4,32 @@ import numpy as np
 
 # Configuration
 file_path = 'itp65cormat.nc'  # Update with your NetCDF file path
-prof_no = 18                  # Profile index to plot
+ds = nc.Dataset(file_path)
+prof_no = 0                  # Profile index to plot
+
+# Print dimensions
+print("=== Dimensions ===")
+for dim_name, dim in ds.dimensions.items():
+    print(f"{dim_name}: {len(dim)}")
+
+# Print variables and their shapes
+print("\n=== Variables ===")
+for var_name, var in ds.variables.items():
+    print(f"{var_name}: shape = {var.shape}, dtype = {var.dtype}")
 
 # Load dataset
-ds = nc.Dataset(file_path)
 pressure = ds.variables['pressure'][:]
-ct = ds.variables['ct'][prof_no, :]
-mask_ml = ds.variables['mask_ml'][prof_no, :].astype(bool)
-mask_gl = ds.variables['mask_gl'][prof_no, :].astype(bool)
-mask_cl = ds.variables['mask_cl'][prof_no, :].astype(bool)
+ct = ds.variables['ct'][0, :]
+mask_ml = ds.variables['mask_ml'][0, :].astype(bool)
+mask_int = ds.variables['mask_int'][0, :].astype(bool)
+mask_cl = ds.variables['mask_cl'][0, :].astype(bool)
+assert np.any(mask_ml), "No mixed layer mask found in the data."
+assert np.any(mask_int), "No interface mask found in the data."
+# assert np.any(mask_cl), "No connection layer mask found in the data."
 
 # Load extrema depths
-t_max_depth = ds.variables['depth_max_T'][prof_no]
-t_min_depth = ds.variables['depth_min_T'][prof_no]
+t_max_depth = ds.variables['depth_max_T'][0]
+t_min_depth = ds.variables['depth_min_T'][0]
 # Find temperature values at extrema
 idx_max = np.where(pressure == t_max_depth)[0]
 idx_min = np.where(pressure == t_min_depth)[0]
@@ -30,9 +43,9 @@ ct = np.ma.masked_invalid(ct)
 plt.figure(figsize=(6, 8))
 plt.plot(ct, pressure, linewidth=1, label='Temperature')
 
-# Scatter masks: ml, gl, cl
+# Scatter masks: ml, int, cl
 plt.scatter(ct[mask_ml], pressure[mask_ml], s=20, label='Mixed Layer (ml)')
-plt.scatter(ct[mask_gl], pressure[mask_gl], s=20, label='Gradient Layer (gl)')
+plt.scatter(ct[mask_int], pressure[mask_int], s=20, label='Interface (int)')
 plt.scatter(ct[mask_cl], pressure[mask_cl], s=20, label='Connection Layer (cl)')
 
 # Plot extrema points
@@ -49,7 +62,7 @@ if temp_min is not None:
 plt.gca().invert_yaxis()
 plt.xlabel('Conservative Temperature (°C)')
 plt.ylabel('Pressure (dbar)')
-plt.title(f'Temperature Profile with ml/gl/cl Masks (Profile {prof_no})')
+plt.title(f'Temperature Profile with ml/int/cl Masks (Profile {prof_no})')
 plt.legend()
 plt.grid(True)
 plt.tight_layout()

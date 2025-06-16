@@ -191,4 +191,12 @@ def load_data_csv_zip(path, profiles, interp=True, resolution=FIXED_RESOLUTION_M
         prof_no[i] = prof["prof_no"]
 
     print(f"✅ Loaded {N} valid profile(s)")
+    print("📊 Final variable shapes:")
+    print(f"  p.shape     = {p.shape}")
+    print(f"  ct.shape    = {ct.shape}")
+    print(f"  sa.shape    = {sa.shape}")
+    print(f"  lat.shape   = {lat.shape}")
+    print(f"  lon.shape   = {lon.shape}")
+    print(f"  juld.shape  = {juld.shape}")
+    print(f"  prof_no.shape = {prof_no.shape}")
     return prof_no, p, lat, lon, ct, sa, juld
