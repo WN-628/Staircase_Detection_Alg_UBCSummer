@@ -6,12 +6,13 @@ import scipy.ndimage as ndimage
 import os
 import shutil
 import zipfile
+import warnings
 
 #import functions
 from data_preparation import *
 from create_netcdf import *
 # from staircase_detector import get_mixed_layers
-from staircase import get_mixed_layers
+from staircase_detector import get_mixed_layers
 
 from config import FIXED_RESOLUTION_METER
 
@@ -21,7 +22,11 @@ thermohaline staircases in the interpolated profiles with a fixed resolution in 
 
 This code is based on the ideas presented in:
 van der Boog, C.G. et al. (20xx), intobal dataset of thermohaline staircases obtained from Argo
-floats and Ice Tethered Profilers. Submitted to Earth System Science Data
+floats and Ice Tethered Profilers. 
+
+and 
+
+Kat's Staircase Detection Algorithm. 
 
 made by: Yujun Ling at UBC (Summer 2025)
 """
@@ -49,6 +54,9 @@ for i in range(len(list1)):
       for f in files:
           if f.endswith('.csv'):
               profiles.append(os.path.join(root, f))
+          else: 
+              warnings.warn(f"File {f} is not a CSV file and will be ignored.")
+              
   prof_no, p, lat, lon, ct, sa, juld = load_data_csv_zip('', profiles, interp = False, resolution= FIXED_RESOLUTION_METER)
   # prof_no,p,lat,lon,ct,sa,juld = load_data_itp('tmp/',profiles,True)
   shutil.rmtree('tmp/')  

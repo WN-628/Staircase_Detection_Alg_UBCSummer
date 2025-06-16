@@ -1,17 +1,8 @@
 import numpy as np
-# import scipy.ndimage as ndimage
-from itertools import combinations
 from types import SimpleNamespace
+from scipy.ndimage import uniform_filter1d
 
 def cent_derivative2d(f,z):
-    # check if f and z are 2D arrays with the same shape
-    if f.shape != z.shape:
-        raise ValueError(f"f and z must have the same shape; got f{f.shape}, z{z.shape}")
-    if not (np.issubdtype(f.dtype, np.floating) and np.issubdtype(z.dtype, np.floating)):
-        raise TypeError("Both f and z must be float arrays (float32 or float64).")
-
-    dfdz = np.zeros_like(f)  # automatically float, since f is float
-    
     dz1     = z[:,1:-1]-z[:,:-2]
     dz2     = z[:,2:]-z[:,1:-1]
     fkp1    = f[:,2:]
@@ -19,214 +10,305 @@ def cent_derivative2d(f,z):
     fk      = f[:,1:-1]
 
     # dfdz    = np.ma.zeros(f.shape)
-    # dfdz = np.ma.array(np.zeros(f.shape), np.nan)
-    dfdz[:,1:-1] = ( dz1**2*fkp1 + ( dz2**2-dz1**2 )*fk - dz2**2*fkm1) / ( dz1*dz2*(dz1+dz2) )
-    # dfdz.mask[:, [0, -1]] = True # Mask out the boundaries
-    # dfdz.mask[dfdz==0]=True 
-    
-    # Boundary handling: forward/backward difference
-    dfdz[:, 0] = (f[:, 1] - f[:, 0]) / (z[:, 1] - z[:, 0])
-    dfdz[:, -1] = (f[:, -1] - f[:, -2]) / (z[:, -1] - z[:, -2])
-    
-    print(f"🧮 Gradient min: {np.nanmin(dfdz)}, max: {np.nanmax(dfdz)}")
-    
+    dfdz = np.ma.array(np.zeros(f.shape), mask=np.zeros(f.shape, dtype=bool))
+    dfdz[:,1:-1] = ( dz1**2*fkp1 + ( dz2**2-dz1**2 )*fk - dz2**2*fkm1
+                ) / ( dz1*dz2*(dz1+dz2) )
+    dfdz.mask[dfdz==0]=True 
     return dfdz
 
-# Define the fast all‐chains function
-def remove_short_runs(mask, min_len):
-    mask = np.asarray(mask, bool)
-    out = np.zeros_like(mask)
-    nR, nC = mask.shape
-    for i in range(nR):
-        j = 0
-        while j < nC:
-            if mask[i, j]:
-                s = j
-                while j < nC and mask[i, j]:
-                    j += 1
-                e = j
-                if e - s >= min_len:
-                    out[i, s:e] = True
-            else:
-                j += 1
-    return out
+def detect_mixed_layers_dual(p, ct, smooth_window=5,
+                            mixed_layer_threshold=0.0002,
+                            interface_threshold=0.005):
+    """
+    Detect mixed layers using smoothed CT, but detect interfaces on the raw CT based on temperature gradient.
 
-def find_runs(row):
-    runs = []
-    j = 0
-    L = len(row)
-    while j < L:
-        if row[j] != 0:
-            t = row[j]; s = j
-            while j < L and row[j] == t:
-                j += 1
-            runs.append((s, j, t))
-        else:
-            j += 1
-    return runs
+    Parameters
+    ----------
+    p : 2D array (n_profiles, n_levels)
+        Pressure or depth.
+    ct : 2D array, same shape as p
+        Conservative temperature.
+    smooth_window : int
+        Width of moving‐average smoother (odd).
+    mixed_layer_threshold : float
+        |dCT_smooth/dp| below → mixed layer.
+    interface_threshold : float
+        |dCT_raw/dp| above → interface.
 
-def mask_sc_continuity(mask_ml, mask_gl, num_ml, num_gl, num_cl=3):
-    ml = remove_short_runs(mask_ml, num_ml)
-    gl = remove_short_runs(mask_gl, num_gl)
-    nR, nC = ml.shape
+    Returns
+    -------
+    mask_ml  : 2D bool array
+        True where a mixed layer is detected (on smoothed CT).
+    mask_int : 2D bool array
+        True where an interface is detected (on raw CT).
+    """
+    n_prof, n_lev = ct.shape
+    # 1) Smooth each profile (you can swap in gaussian or Savitzky–Golay)
+    half_w = smooth_window // 2
+    kernel = np.ones(smooth_window) / smooth_window
+    ct_smooth = np.zeros_like(ct)
+    for i in range(n_prof):
+        prof = np.ma.getdata(ct[i])
+        padded = np.pad(prof, pad_width=half_w, mode='edge')
+        ct_smooth[i] = np.convolve(padded, kernel, mode='valid')
 
-    sc_map = np.zeros((nR, nC), int)
-    sc_map[ml] = 1
-    sc_map[gl] = 2
+    # 2) Initialize masks
+    mask_ml  = np.zeros_like(ct, dtype=bool)
+    mask_int = np.zeros_like(ct, dtype=bool)
 
-    clean_ml = np.zeros_like(ml)
-    clean_gl = np.zeros_like(gl)
-    mask_cl  = np.zeros_like(ml)
+    # 3) Loop over profiles & levels
+    for i in range(n_prof):
+        for j in range(1, n_lev - 1):
+            # skip masked
+            if np.ma.is_masked(ct[i, j-1]) or np.ma.is_masked(ct[i, j+1]):
+                continue
 
-    for i in range(nR):
-        while True:
-            runs = find_runs(sc_map[i])
-            R = len(runs)
-            if R < 3:
-                break
+            dp = p[i, j+1] - p[i, j-1]
+            if dp == 0:
+                continue
 
-            # DP on runs
-            dp   = [1]*R
-            prev = [-1]*R
-            for j in range(R):
-                sj, ej, tj = runs[j]
-                for k in range(j):
-                    sk, ek, tk = runs[k]
-                    if tk != tj and sj - ek <= num_cl:
-                        if dp[k] + 1 > dp[j]:
-                            dp[j] = dp[k] + 1
-                            prev[j] = k
+            # raw CT gradient for interface
+            grad_raw   = (ct[i, j+1]   - ct[i, j-1])   / dp
+            # smoothed CT gradient for mixed layer
+            grad_smooth = (ct_smooth[i, j+1] - ct_smooth[i, j-1]) / dp
 
-            # find maximal chain
-            j_max = max(range(R), key=lambda x: dp[x])
-            if dp[j_max] < 3:
-                break
+            if abs(grad_smooth) < mixed_layer_threshold:
+                mask_ml[i, j] = True
+            if abs(grad_raw) > interface_threshold:
+                mask_int[i, j] = True
 
-            # backtrack full chain
-            chain = []
-            cur = j_max
-            while cur >= 0:
-                chain.append(cur)
-                cur = prev[cur]
-            chain.reverse()
+    return mask_ml, mask_int
 
-            # mark all sub-chains >=3
-            K = len(chain)
-            for start in range(K-2):
-                for end in range(start+3, K+1):
-                    sub = chain[start:end]
-                    for idx in sub:
-                        s, e, t = runs[idx]
-                        if t == 1:
-                            clean_ml[i, s:e] = True
-                        else:
-                            clean_gl[i, s:e] = True
-                    for a, b in zip(sub, sub[1:]):
-                        _, e0, _ = runs[a]
-                        s1, _, _ = runs[b]
-                        if s1 > e0:
-                            mask_cl[i, e0:s1] = True
 
-            # remove entire chain and gaps
-            for idx in chain:
-                s, e, _ = runs[idx]
-                sc_map[i, s:e] = 0
-            for a, b in zip(chain, chain[1:]):
-                _, e0, _ = runs[a]
-                s1, _, _ = runs[b]
-                if s1 > e0:
-                    sc_map[i, e0:s1] = 0
 
-    mask_sc = clean_ml | clean_gl | mask_cl
-    return clean_ml, clean_gl, mask_cl, mask_sc
+def mask_continuity(mask, length):
+    """
+    For each row in the 2D boolean array `mask`, find all contiguous runs of True.
+    If a run’s length is < `length`, set those positions to False.
 
-def get_mixed_layers(p, ct, thres_ml=0.0002, thres_gl=0.005, num_cl=3):
-    '''
-    p   : 2D array, shape (Nobs, Nlev) -> depth (metres or dbar) increasing downward
-    ct  : 2D array, same shape -> conservative temperature
-
-    thres_ml  : threshold for |dT/dz| defining mixed-layer points
-    thres_gl  : threshold for |dT/dz| defining gradient-layer points
-    depth_cl  : max vertical separation (same units as p) to link gradient->mixed
+    Args:
+        mask : 2D boolean array of shape (n_profiles, n_levels).
+        length : int
+            Minimum run‐length (in grid points) to retain.
 
     Returns:
-        gl_inds     : list of arrays of gradient-layer indices
-        ml_inds     : list of arrays of mixed-layer indices
-        masks       : namespace with boolean arrays .ml, .gl, .cl, .sc each shape (Nobs, Nlev)
-        t_max_depth : 1D array of depths of maximum temperature per profile
-        t_min_depth : 1D array of depths of first local minimum above max per profile
-    '''
-    
-    ct_orig = np.copy(ct)
-    p_orig = np.copy(p)
-    
-    '''
-    #0 locate max and first local min temps above it (shallower depths)
-    to store the max and min temperature for temperature profile
-    We only try to find staircase in the region 25m above the max and below the min temperature in depth
-    '''
-    depth_max_T = np.full(ct.shape[0], np.nan)
-    depth_min_T = np.full(ct.shape[0], np.nan)
+        2D boolean array of the same shape, with all runs shorter than `length` zeroed out.
+    """
+    # Convert masked arrays to plain booleans
+    if isinstance(mask, np.ma.MaskedArray):
+        m = mask.filled(False)
+    else:
+        m = np.asarray(mask, dtype=bool)
 
-    for k in range(ct.shape[0]):
-        temp_raw = ct[k, :]
-        pressure_raw = p[k, :]
-        temp_raw = np.ma.masked_invalid(temp_raw)
-        pressure_raw = np.ma.masked_where(temp_raw.mask, pressure_raw)
+    out = m.copy()
+    n_rows, n_cols = m.shape
 
-        if temp_raw.count() == 0:
+    for i in range(n_rows):
+        row = m[i]
+        j = 0
+        while j < n_cols:
+            if row[j]:
+                start = j
+                # advance until the run ends
+                while j < n_cols and row[j]:
+                    j += 1
+                run_len = j - start
+                if run_len < length:
+                    # zero‐out any too‐short runs
+                    out[i, start:j] = False
+            else:
+                j += 1
+
+    return out
+
+def continuity(arr, num_one, num_two, num_three):
+    """
+    Helper function to clean up a 1D array of integers formed by (1, 2, 0). 
+    Steps
+        1) Remove runs of 1,2 shorter than thresholds.
+        2) Bridge short zero-gaps (<= num_three) by marking as 3.
+        3) Keep only blocks with ≥3 alternating 1↔2 runs.
+    """
+    
+    out = list(arr)
+    n = len(out)
+
+    # Stage 1: drop too-short runs
+    for val, thresh in ((1, num_one), (2, num_two), (3, num_three)):
+        i = 0
+        while i < n:
+            if out[i] == val:
+                start = i
+                while i < n and out[i] == val:
+                    i += 1
+                if (i - start) < thresh:
+                    for j in range(start, i):
+                        out[j] = 0
+            else:
+                i += 1
+
+    # Stage 2: fill short zero-gaps with 3
+    i = 0
+    while i < n:
+        if out[i] != 0:
+            i += 1
             continue
+        start = i
+        while i < n and out[i] == 0:
+            i += 1
+        end = i
+        run_len = end - start
+        if start > 0 and end < n and out[start-1] != 0 and out[end] != 0 and run_len <= num_three:
+            for j in range(start, end):
+                out[j] = 3
 
-        max_idx = np.ma.argmax(temp_raw)
-        min_idx = np.ma.argmin(temp_raw)
-        depth_max_T[k] = pressure_raw[max_idx]
-        depth_min_T[k] = pressure_raw[min_idx]
+    # Stage 3: alternation test
+    i = 0
+    while i < n:
+        if out[i] == 0:
+            i += 1
+            continue
+        rs = i
+        while i < n and out[i] != 0:
+            i += 1
+        re = i
+        runs = []
+        j = rs
+        while j < re:
+            if out[j] in (1, 2):
+                v = out[j]
+                while j < re and out[j] == v:
+                    j += 1
+                runs.append(v)
+            else:
+                j += 1
+        ok = False
+        for k in range(len(runs)):
+            cnt, last = 1, runs[k]
+            for l in range(k+1, len(runs)):
+                if runs[l] != last:
+                    cnt += 1
+                    last = runs[l]
+                else:
+                    break
+            if cnt >= 3:
+                ok = True
+                break
+        if not ok:
+            for j in range(rs, re):
+                out[j] = 0
+    return np.array(out)
 
+def get_mixed_layers(p, ct,
+                    thres_ml=0.005,
+                    thres_int=0.005,
+                    min_run=3,
+                    mushy=1.0):
+    '''
+    Identify mixed layers, interfaces, and staircase structures for data in `p` and `ct`.
+
+    Args:
+        p         : 2D array, shape (n_profiles, n_levels), increasing downward (dbar or m)
+        ct        : 2D array, same shape, conservative temperature
+        thres_ml  : slope threshold for mixed-layer points
+        thres_int  : slope threshold for gradient-layer points
+        min_run   : minimum contiguous points per ml/int run (grid points)
+        mushy     : max vertical separation (same units as p) to link runs
+
+    Returns:
+        masks.ml  : boolean mask of mixed-layer points
+        masks.int : boolean mask of gradient-layer points
+        masks.cl  : boolean mask of connection (link) points
+        masks.sc  : boolean mask of all staircase structure points
+    
+    Note: All the returned masks are 2D arrays of the same shape as `p` and `ct`. 
+    '''
+    
+    # Check input shapes
+    assert np.shape(p) == np.shape(ct), "p and ct must have the same shape."
+    
+    # 0. find max‐T and first local min depths per profile
+    n_prof, n_lev = ct.shape
+    depth_max_T = np.full(n_prof, np.nan)
+    depth_min_T = np.full(n_prof, np.nan)
+    for k in range(n_prof):
+        temp = np.ma.masked_invalid(ct[k])
+        pres = np.ma.masked_where(temp.mask, p[k])
+        if temp.count() == 0:
+            continue
+        depth_max_T[k] = pres[np.ma.argmax(temp)]
+        depth_min_T[k] = pres[np.ma.argmin(temp)]
+        assert not np.isnan(depth_max_T[k]), f"No maximum-temperature depth for profile ID {k}"
+        assert not np.isnan(depth_min_T[k]), f"No minimum-temperature depth for profile ID {k}"
+    
+    # 1) the arrays themselves must exist
+    assert depth_min_T is not None and depth_max_T is not None, \
+        "depth_min_T or depth_max_T was never initialized"
+
+    # 2) no Python None in any entry
+    assert not any(val is None for val in depth_min_T.tolist()), \
+        "depth_min_T contains NoneType entries"
+    assert not any(val is None for val in depth_max_T.tolist()), \
+        "depth_max_T contains NoneType entries"
+
+    # 3) no NaNs slipping through either
+    assert not np.isnan(depth_min_T).any(), \
+        "depth_min_T contains NaN values"
+    assert not np.isnan(depth_max_T).any(), \
+        "depth_max_T contains NaN values"
+
+    # 0A. restrict to ±25 m around those extrema :contentReference[oaicite:1]{index=1}
     valid_depth_mask = np.zeros_like(p, dtype=bool)
-    for k in range(ct.shape[0]):
+    for k in range(n_prof):
         dmin = depth_min_T[k] + 25
         dmax = depth_max_T[k] - 25
-        valid_depth_mask[k, :] = (p[k, :] >= dmin) & (p[k, :] <= dmax)
+        valid_depth_mask[k] = (p[k] >= dmin) & (p[k] <= dmax)
 
+    # mask out everything outside that window
     ct = np.ma.masked_where(~valid_depth_mask, ct)
-    p = np.ma.masked_where(~valid_depth_mask, p)
+    p  = np.ma.masked_where(~valid_depth_mask, p)
     
-    # Ensure that the updated ct and p are still arrays of the same shape
-    if ct.shape != p.shape:
-        raise ValueError(f"ct and p must have the same shape after masking; got ct{ct.shape}, p{p.shape}")
+    assert np.shape(ct) == np.shape(p), "ct and p must have the same shape after checking max and min temperature."
     
-    '''
-    step 0A: define classes
-    '''
-    
-    class ml: pass
-    class gl: pass
-    class masks: pass
-    
-    '''
-    step 1: Mixed layer (ml) and gradient layer (gl) detection
-    '''
-    # 1a. compute vertical gradients
-    dTdz = cent_derivative2d(ct, p)
-    
-    mask_ml = np.abs(dTdz) < thres_ml
-    assert np.any(mask_ml), "No mixed layer mask found in the data based on the gradient condition."
-    mask_gl = np.abs(dTdz) > thres_gl
-    assert np.any(mask_gl), "No gradient layer mask found in the data based on the gradient condition."
-    
-    num_ml = 3  # minimum length of one mixed layer in grid points
-    num_gl = 3  # minimum length of one gradient layer in grid points
-    
-    # clean the masks for mixed and gradient layers by required thickness
-    ml_final, gl_final, cl_final, mask_sc = mask_sc_continuity(mask_ml, mask_gl, num_ml, num_gl, num_cl)
-    
-    assert np.any(ml_final), "No mixed layer mask found in the data."
-    assert np.any(gl_final), "No gradient layer mask found in the data."
-    assert np.any(cl_final), "No connection layer mask found in the data."
+    # # 1. compute vertical derivative dT/dz (Kat et al.’s method) :contentReference[oaicite:2]{index=2}
+    # dTdz = cent_derivative2d(ct, p)
 
-    masks = SimpleNamespace(ml=ml_final,
-                            gl=gl_final,
-                            cl=cl_final,
-                            sc=mask_sc)
+    # # 2. initial masks by gradient thresholds
+    # mask_ml = np.abs(dTdz) < thres_ml
+    # mask_int = np.abs(dTdz) > thres_int
+    # assert np.any(mask_ml), "No mixed layer mask found in gradient."
+    # assert np.any(mask_int), "No interface mask found in gradient."
+    
+    mask_ml, mask_int = detect_mixed_layers_dual(p, ct, 11, thres_ml, thres_int)
 
+    # 3. prune short runs (thickness condition) :contentReference[oaicite:3]{index=3}
+    # mask_ml = mask_continuity(mask_ml, min_run)
+    # mask_int = mask_continuity(mask_int, min_run)
+    assert np.any(mask_ml), "No mixed layer mask found in the data with gradient check."
+    
+    # 3. assemble staircase structure
+    clean_ml  = np.zeros_like(mask_ml,  dtype=bool)
+    clean_int = np.zeros_like(mask_int, dtype=bool)
+    mask_cl   = np.zeros_like(mask_ml,  dtype=bool)
+    mask_sc   = np.zeros_like(mask_ml,  dtype=bool)
+
+    resolution   = 0.25
+    mushy_points = int(np.ceil(mushy / resolution))
+
+    for i in range(n_prof):
+        arr = np.zeros(n_lev, dtype=int)
+        arr[mask_ml[i]]  = 1
+        arr[mask_int[i]] = 2
+
+        cleaned = continuity(arr, min_run, min_run, mushy_points)
+        clean_ml[i]  = (cleaned == 1)
+        clean_int[i] = (cleaned == 2)
+        mask_cl[i]   = (cleaned == 3)
+        mask_sc[i]   = (cleaned > 0)
+    
+    assert np.any(clean_int), "No interface mask found in the data with continuity check."
+    assert np.any(clean_ml), "No mixed layer mask found in the data with continuity check."
+
+    masks = SimpleNamespace(ml=clean_ml, int=clean_int,
+                                cl=mask_cl, sc=mask_sc)
     return masks, depth_min_T, depth_max_T
