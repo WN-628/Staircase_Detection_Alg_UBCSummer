@@ -17,7 +17,7 @@ print("\n=== Variables ===")
 for var_name, var in ds.variables.items():
     print(f"{var_name}: shape = {var.shape}, dtype = {var.dtype}")
 
-prof_no = 492              # Profile index to plot
+prof_no = 384              # Profile index to plot
 
 profile_ids = ds.variables['FloatID'][:]  # 1D array of profile IDs
 if prof_no in profile_ids:
@@ -35,23 +35,18 @@ print(f"Profiles with mixed layer detected: {profiles_with_ml.tolist()}")
 time_var  = ds.variables['dates']  # dates in create_netcdf.py are Gregorian
 times_all = nc.num2date(time_var[:], units=time_var.units, calendar='gregorian')
 
-# Print dimensions
-print("=== Dimensions ===")
-for dim_name, dim in ds.dimensions.items():
-    print(f"{dim_name}: {len(dim)}")
-
-# Print variables and their shapes
-print("\n=== Variables ===")
-for var_name, var in ds.variables.items():
-    print(f"{var_name}: shape = {var.shape}, dtype = {var.dtype}")
-
 # Load dataset
-pressure = ds.variables['pressure'][:]
+pressure = ds.variables['pressure'][prof_idx, :].filled(np.nan)
 ct = ds.variables['ct'][prof_idx, :]
 ct_full = ds.variables['ct'][prof_idx, :].filled(np.nan)
 mask_ml = ds.variables['mask_ml'][prof_idx, :].astype(bool)
 mask_int = ds.variables['mask_int'][prof_idx, :].astype(bool)
 mask_cl = ds.variables['mask_cl'][prof_idx, :].astype(bool)    
+
+dmax = ds.variables['depth_max_T'][prof_idx]
+dmin = ds.variables['depth_min_T'][prof_idx]
+
+print("maximum pressure is:", np.max(ct))
 
 # Mask invalid temperature
 # ct = np.ma.masked_invalid(ct_full)
@@ -61,8 +56,7 @@ assert np.any(mask_ml), "No mixed layer mask found in the data."
 # assert np.any(mask_int), "No interface mask found in the data."
 
 # # 1. get the two extreme depths for this profile
-# dmax = ds.variables['depth_max_T'][prof_idx]
-# dmin = ds.variables['depth_min_T'][prof_idx]
+
 
 # # 2. interpolate CT at those exact depths
 # #    (assumes pressure and ct_raw are 1D arrays, and pressure is monotonic)
@@ -81,6 +75,9 @@ plt.plot(ct, pressure, linewidth=1, label='Temperature')
 plt.scatter(ct[mask_ml], pressure[mask_ml], s=20, label='Mixed Layer (ml)')
 plt.scatter(ct[mask_int], pressure[mask_int], s=20, label='Interface (int)')
 plt.scatter(ct[mask_cl], pressure[mask_cl], s=20, label='Connection Layer (cl)')
+
+plt.axhline(dmax, linestyle='--', label=f'Depth of Max CT: {dmax:.1f} m')
+plt.axhline(dmin, linestyle='--', label=f'Depth of Min CT: {dmin:.1f} m')
 
 # Aesthetics
 plt.gca().invert_yaxis()

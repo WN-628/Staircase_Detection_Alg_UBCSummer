@@ -82,9 +82,6 @@ def load_data_mat_zip(path, profiles, interp=True, resolution=FIXED_RESOLUTION_M
 
 def load_data_csv_zip(path, profiles, interp=True, resolution=FIXED_RESOLUTION_METER):
     valid_profiles = []
-    target_levels = np.arange(0, 2000, resolution)
-    
-    count = 0
 
     for fname in profiles:
         if not fname.endswith(".csv") or os.path.basename(fname).startswith("._"):
@@ -172,7 +169,8 @@ def load_data_csv_zip(path, profiles, interp=True, resolution=FIXED_RESOLUTION_M
         return [], None, None, None, None, None, None
     
     N = len(valid_profiles)
-    array_shape = (N, len(target_levels))
+    max_len = max(len(prof["p"]) for prof in valid_profiles)
+    array_shape = (N, max_len)
 
     p = np.ma.masked_all(array_shape)
     ct = np.ma.masked_all(array_shape)
@@ -193,9 +191,6 @@ def load_data_csv_zip(path, profiles, interp=True, resolution=FIXED_RESOLUTION_M
         prof_no[i] = prof["prof_no"]
     
     print(f"✅ Loaded {N} valid profile(s)")
-    if SKIPPED_DEPTH_FILES:
-        skipped_names = [os.path.basename(f) for f in SKIPPED_DEPTH_FILES]
-        print(f"⛔ Skipped {count} profiles due to depth threshold {depth_thres} m: {skipped_names}")
     print("📊 Final variable shapes:")
     print(f"  p.shape     = {p.shape}")
     print(f"  ct.shape    = {ct.shape}")

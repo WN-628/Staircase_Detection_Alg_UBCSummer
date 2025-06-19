@@ -1,154 +1,117 @@
-import netCDF4 as netcdf
-import numpy as np
-import scipy.interpolate as interpolate
-import scipy.stats as stats
-import scipy.ndimage as ndimage
 import os
 import shutil
 import zipfile
 import warnings
 
-#import functions
+import numpy as np
+import netCDF4 as netcdf
+
 from data_preparation import load_data_csv_zip
-from create_netcdf import *
+from create_netcdf import create_netcdf
 from staircase_detector import get_mixed_layers
 from config import FIXED_RESOLUTION_METER
-
 from after_detector import *
 
 """
-Script to detect 
-thermohaline staircases in the interpolated profiles with a fixed resolution in depth (0.25m). 
-
-This code is based on the ideas presented in:
-van der Boog, C.G. et al. (20xx), intobal dataset of thermohaline staircases obtained from Argo
-floats and Ice Tethered Profilers. 
-
-and 
-
-Kat's Staircase Detection Algorithm. 
-
-made by: Yujun Ling at UBC (Summer 2025)
+Script to detect thermohaline staircases in Ice Tethered Profiler data.
+Each profile maintains its own true min→max depth grid without artificial zero-padding.
 """
 
 print('Ice tethered profiles')
-list1 = [f for f in os.listdir() if f.endswith('.zip')]
-floats=np.array(list1) 
+zip_files = [f for f in os.listdir() if f.endswith('.zip')]
 
-# Parameters for the staircase detection algorithm
-# depth_thres = 450      # minimum depth threshold for valid profiles (in m)
-thres_ml_upper  = 0.002  # gradient threshold for mixed layer detection 
-thres_int_lower = 0.005  # gradient threshold for interface detection
-ml_min_length   = 0.75   # minumum length of mixed layer in depth (in m)
-int_min_temp    = 0.01   # minimum threshold for interface temperature width (in °C)
-cl_length       = 1.0    # maximum allowed length for connecting layers (in m)
-smooth_length   = 7      # smoothing length in grid points (0.25m resolution)
+# Detection thresholds
+thres_ml_upper  = 0.002  # mixed layer gradient threshold
+thres_int_lower = 0.005  # interface gradient threshold
+ml_min_length   = 0.75   # mixed layer min depth length (m)
+int_min_temp    = 0.01   # interface min temperature width (°C)
+cl_length       = 1.0    # connecting layer max length (m)
+smooth_length   = 7      # smoothing window (grid points)
 
-# Parameters inside get_mixed_layers function
-gap_ml = 2        # maximum number of consecutive False values in mask_ml to fill
-gap_int = 1       # maximum number of consecutive False values in mask_int to fill
-ml_temp = 0.005   # maximum threshold for mixed layer temperature width
-ml_height = 3.0   # maximum height of mixed layer in meters
+for zip_name in zip_files:
+    base = os.path.splitext(zip_name)[0]
+    ncfile = f"{base}.nc"
+    print(f"📦 Processing {zip_name} → will save to {ncfile}")
 
-for i in range(len(list1)):
-  zip_name = os.path.splitext(list1[i])[0]
-  ncfile = f"{zip_name}.nc"
-  create_netcdf(ncfile, int(2000 / FIXED_RESOLUTION_METER))
-  print(f"📦 Processing {list1[i]} → will save to {ncfile}")
+    # 1) Extract CSVs
+    tmp_dir = 'tmp'
+    if os.path.exists(tmp_dir):
+        shutil.rmtree(tmp_dir)
+    os.makedirs(tmp_dir)
+    with zipfile.ZipFile(zip_name, 'r') as z:
+        z.extractall(tmp_dir)
+    os.remove(zip_name)
 
-  index = np.where(floats==list1[i])[0][0]
-  filename1 = list1[i]
-  
-  os.makedirs('tmp/')
-  zip_ref = zipfile.ZipFile(floats[index],'r')
-  zip_ref.extractall('tmp/')  
-  os.remove(floats[index])
-  
-  profiles = []
-  for root, _, files in os.walk('tmp/'):
-      for f in files:
-          if f.endswith('.csv'):
-              profiles.append(os.path.join(root, f))
-          else: 
-              warnings.warn(f"File {f} is not a CSV file and will be ignored.")
-  
-  prof_no, p, lat, lon, ct, sa, dates = load_data_csv_zip('', profiles, interp = False, resolution= FIXED_RESOLUTION_METER)
-  
-  shutil.rmtree('tmp/')  
-  # print("Loaded profile count:", len(lat))
-  # print("Latitude:", lat)
-  # print("CT shape:", ct.shape)
-  # print("Max pressure:", p.max() if isinstance(p, np.ndarray) else "Invalid")
-  # print("Any non-NaN CT rows:", np.any(~np.all(np.isnan(ct), axis=1)))
+    # 2) Gather profile files
+    profiles = []
+    for root, _, files in os.walk(tmp_dir):
+        for f in files:
+            if f.endswith('.csv') and not f.startswith('._'):
+                profiles.append(os.path.join(root, f))
+            # else:
+                # warnings.warn(f"File {f} is not a CSV file and will be ignored.")
 
-  if len(lat)>1:
-    #remove profiles with only nans
-    n     = np.arange(len(lat),dtype=np.int32)
-    n     = n[~np.all(np.isnan(ct), axis=1)]
-    p     = p[~np.all(np.isnan(ct), axis=1),:]
-    lon   = lon[~np.all(np.isnan(ct), axis=1)]
-    lat   = lat[~np.all(np.isnan(ct), axis=1)]
-    sa    = sa[~np.all(np.isnan(ct), axis=1),:]
-    dates  = dates[~np.all(np.isnan(ct), axis=1)]
-    prof_no = prof_no[~np.all(np.isnan(ct), axis=1)]
-    ct    = ct[~np.all(np.isnan(ct), axis=1),:]
+    # 3) Load raw profiles (no interpolation) using absolute paths
+    prof_no, p_raw, lat, lon, ct_raw, sa_raw, dates = load_data_csv_zip(
+        '', profiles, interp=False,
+        resolution=FIXED_RESOLUTION_METER
+    )
+    N = len(prof_no)
+    if N == 0:
+        print(f"No valid profiles in {zip_name}")
+        shutil.rmtree(tmp_dir)
+        continue
 
-  if len(p)>0:
-    if len(lat)==1 and p.max()>0:
-      ct = np.ma.squeeze(ct)[np.newaxis,:]
-      sa = np.ma.squeeze(sa)[np.newaxis,:]   
-      p  = np.ma.squeeze(p)[np.newaxis,:]
-    
-    if p.max()>0:
-      #detection algorithm
-      masks, depth_min_T, depth_max_T = get_mixed_layers(np.ma.copy(p),np.ma.copy(ct),thres_ml_upper,thres_int_lower, ml_min_length, int_min_temp, cl_length, smooth_length) 
+    # 4) Determine the maximum true profile length
+    valid_mask = ~np.ma.getmaskarray(p_raw)
+    lengths = valid_mask.sum(axis=1)
+    max_len = int(np.max(lengths))
 
-      fh2 = netcdf.Dataset(ncfile,'r+')
-      t0 = len(fh2.variables['n'][:])
-      t1 = len(fh2.variables['n'][:])+len(lat)
-    
-      #general
-      fh2.variables['n'][t0:t1]                   = np.arange(len(lat),dtype=np.int32)
-      fh2.variables['lat'][t0:t1]                 = lat
-      fh2.variables['lon'][t0:t1]                 = lon
-      fh2.variables['prof'][t0:t1]                = np.arange(len(lat))
-      fh2.variables['dates'][t0:t1]               = dates
-      fh2.variables['ct'][t0:t1,:]                = ct
-      fh2.variables['sa'][t0:t1,:]                = sa
-      fh2.variables['FloatID'][t0:t1]             = prof_no
-      
-      #masks
-      fh2.variables['mask_int'][t0:t1,:]  = masks.int
-      fh2.variables['mask_ml'][t0:t1,:]  = masks.ml
-      fh2.variables['mask_cl'][t0:t1,:]  = masks.cl
-      fh2.variables['mask_sc'][t0:t1,:]  = masks.sc
-      assert np.any(masks.ml), "No mixed layer mask found in the data."
-      assert np.any(masks.int), "No interface mask found in the data."
-      
-      # temperature max and min over depths
-      fh2.variables['depth_max_T'][t0:t1] = depth_max_T
-      fh2.variables['depth_min_T'][t0:t1] = depth_min_T
-      
-      fh2.close()
+    # 5) Allocate per-profile grids preserving true min→max depths
+    p   = np.ma.masked_all((N, max_len))
+    ct  = np.ma.masked_all((N, max_len))
+    sa  = np.ma.masked_all((N, max_len))
 
+    # 6) Populate arrays
+    for i in range(N):
+        valid = ~np.ma.getmaskarray(p_raw[i])
+        L = valid.sum()
+        p[i, :L]  = p_raw[i, valid]
+        ct[i, :L] = ct_raw[i, valid]
+        sa[i, :L] = sa_raw[i, valid]
 
+    # Clean up temporary files
+    shutil.rmtree(tmp_dir)
 
-      # # mixed layer characteristics
-      # fh2.variables['ml_h'][t0:t1,:]              = ml.height
-      # fh2.variables['ml_p'][t0:t1,:]              = ml.p
-      # fh2.variables['ml_T'][t0:t1,:]              = ml.T
-      # fh2.variables['ml_S'][t0:t1,:]              = ml.S
-      # fh2.variables['ml_Tu'][t0:t1,:]             = ml.Tu
-      # fh2.variables['ml_R'][t0:t1,:]              = ml.R
-      # fh2.variables['ml_r'][t0:t1,:]              = ml.r
-      # fh2.variables['ml_h'][t0:t1,:]              = ml.height
-      
-      # #interface characteristics
-      # fh2.variables['int_dT'][t0:t1,:]             = int.dT
-      # fh2.variables['int_dS'][t0:t1,:]             = int.dS
-      # fh2.variables['int_dr'][t0:t1,:]             = int.dr
-      # fh2.variables['int_h'][t0:t1,:]              = int.dist
-      # fh2.variables['int_Tu'][t0:t1,:]             = int.Tu
-      # fh2.variables['int_R'][t0:t1,:]              = int.R
-      
-      
+    # 7) Create NetCDF with nlevels = max_len
+    fh = create_netcdf(ncfile, max_len)
+
+    # 8) Run detection on the per-profile grids
+    masks, depth_min_T, depth_max_T = get_mixed_layers(
+        np.ma.copy(p), np.ma.copy(ct),
+        thres_ml_upper, thres_int_lower,
+        ml_min_length, int_min_temp,
+        cl_length, smooth_length
+    )
+
+    # 9) Write to NetCDF
+    t0, t1 = 0, N
+    fh.variables['lat'][t0:t1]          = lat
+    fh.variables['lon'][t0:t1]          = lon
+    fh.variables['prof'][t0:t1]         = np.arange(N, dtype=np.int32)
+    fh.variables['dates'][t0:t1]        = dates
+    fh.variables['FloatID'][t0:t1]      = prof_no
+
+    fh.variables['pressure'][t0:t1, :]  = p.filled(np.nan)
+    fh.variables['ct'][t0:t1, :]        = ct.filled(np.nan)
+    fh.variables['sa'][t0:t1, :]        = sa.filled(np.nan)
+
+    fh.variables['mask_ml'][t0:t1, :]   = masks.ml
+    fh.variables['mask_int'][t0:t1, :]  = masks.int
+    fh.variables['mask_cl'][t0:t1, :]   = masks.cl
+    fh.variables['mask_sc'][t0:t1, :]   = masks.sc
+
+    fh.variables['depth_max_T'][t0:t1]  = depth_max_T
+    fh.variables['depth_min_T'][t0:t1]  = depth_min_T
+
+    fh.close()

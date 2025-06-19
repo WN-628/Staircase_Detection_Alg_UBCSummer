@@ -469,8 +469,8 @@ def get_mixed_layers(p, ct,
         temp = np.ma.masked_invalid(ct[k])
         if temp.count() == 0:
             continue
-        idx_max = np.ma.argmax(temp)
-        idx_min = np.ma.argmin(temp)
+        idx_max = np.ma.argmax(ct[k])
+        idx_min = np.ma.argmin(ct[k])
         depth_max_T[k] = p[k, idx_max]
         depth_min_T[k] = p[k, idx_min]
         assert not np.isnan(depth_max_T[k]), f"No maximum-temperature depth for profile {k}"
