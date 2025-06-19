@@ -1,18 +1,16 @@
 import gsw
-import netCDF4 as netcdf
 import numpy as np
-import scipy.interpolate as interpolate
-import scipy.stats as stats
-import scipy.ndimage as ndimage
-import scipy.io
 import pandas as pd
-import ftplib as ftp
-import wget 
 import os
-import h5py
-import re
+import re 
+from datetime import datetime
+
+import h5py #only used for .mat files
 
 from config import FIXED_RESOLUTION_METER
+
+# List to record files skipped due to depth threshold
+SKIPPED_DEPTH_FILES = []
 
 def load_data_mat_zip(path, profiles, interp=True, resolution=FIXED_RESOLUTION_METER):
     valid_profiles = []
@@ -81,12 +79,12 @@ def load_data_mat_zip(path, profiles, interp=True, resolution=FIXED_RESOLUTION_M
     # print(f"✅ Loaded {len(valid_profiles)} valid profile(s): {[p['prof_no'] for p in valid_profiles]}")
 
     return prof_no, p, lat, lon, ct, sa, juld
-  
-  
-  
-def load_data_csv_zip(path, profiles, interp=True, resolution=FIXED_RESOLUTION_METER):
+
+def load_data_csv_zip(path, profiles, interp=True, resolution=FIXED_RESOLUTION_METER, depth_thres=450):
     valid_profiles = []
     target_levels = np.arange(0, 2000, resolution)
+    
+    count = 0
 
     for fname in profiles:
         if not fname.endswith(".csv") or os.path.basename(fname).startswith("._"):
@@ -96,31 +94,43 @@ def load_data_csv_zip(path, profiles, interp=True, resolution=FIXED_RESOLUTION_M
         try:
             df = pd.read_csv(full_path)
             df.columns = df.columns.str.strip().str.lower()
+            
+            # Loading p, ct, sa 
             pressure = df['depth'].to_numpy().flatten() if 'depth' in df.columns else df.iloc[:, 0].to_numpy().flatten()
             temperature = df['temperature'].to_numpy().flatten() if 'temperature' in df.columns else df.iloc[:, 1].to_numpy().flatten()
             salinity = df['salinity'].to_numpy().flatten() if 'salinity' in df.columns else df.iloc[:, 2].to_numpy().flatten()
+            
+            # --- Metadata etraction from first line ---
+            # Latitude and longtitude: one value per profile
+            lat = float(df['lat'].iloc[0]) if 'lat' in df.columns else 0.0  # Edited: read from first row
+            lon = float(df['lon'].iloc[0]) if 'lon' in df.columns else 0.0  # Edited: read from first row
+            # parse date, convert to seconds since epoch
+            if 'startdate' in df.columns:
+                raw = df['startdate'].iloc[0]
+                try:
+                    dt = datetime.fromisoformat(str(raw))
+                except ValueError:
+                    dt = pd.to_datetime(raw).to_pydatetime()
+                date_sec = dt.timestamp()
+            else:
+                date_sec = np.nan
+
+            
         except Exception as e:
             print(f"❌ Failed to read {fname}: {e}")
             continue
-
-        # Extract lat/lon from filename
-        try:
-            base = os.path.basename(fname)
-            parts = base.split('_')
-            lon = float(parts[1])
-            lat = float(parts[2])
-        except Exception as e:
-            print(f"⚠️ Failed to extract lat/lon from {fname}: {e}")
-            lat, lon = 0.0, 0.0
-
-        if pressure.size == 0 or pressure.max() <= 500:
-            print(f"⛔ Skipping {fname}: invalid pressure range")
+        
+        if pressure.size == 0 or pressure.max() <= depth_thres:
+            count += 1
+            SKIPPED_DEPTH_FILES.append(fname)
+            # print(f"⛔ Skipping {fname}: invalid pressure range")
             continue
-
+        
         try:
             if interp:
+                min_p = pressure.min()
                 max_p = pressure.max()
-                p_interp = np.arange(0, max_p + resolution, resolution)
+                p_interp = np.arange(min_p, max_p + resolution, resolution)
                 temp_interp = np.interp(p_interp, pressure, temperature)
                 salt_interp = np.interp(p_interp, pressure, salinity)
 
@@ -141,12 +151,14 @@ def load_data_csv_zip(path, profiles, interp=True, resolution=FIXED_RESOLUTION_M
                     "sa": sa,
                 }
 
-            match = re.search(r"cor(\d{4})_", base)
+            # Extract profile number from filename (now matches 'cor0001.csv')
+            match = re.search(r"cor(\d{4})\.csv$", os.path.basename(fname))
             prof_number = int(match.group(1)) if match else 0
+            
             profile.update({
                 "lat": lat,
                 "lon": lon,
-                "juld": 0,
+                "dates": date_sec,
                 "prof_no": prof_number
             })
             valid_profiles.append(profile)
@@ -167,18 +179,8 @@ def load_data_csv_zip(path, profiles, interp=True, resolution=FIXED_RESOLUTION_M
     sa = np.ma.masked_all(array_shape)
     lat = np.ma.masked_all(N)
     lon = np.ma.masked_all(N)
-    juld = np.ma.masked_all(N)
+    dates = np.ma.masked_all(N, dtype='f8')
     prof_no = np.zeros(N, dtype=int)
-
-    # max_len = max(len(p["p"]) for p in valid_profiles)
-
-    # p = np.ma.masked_all((N, max_len))
-    # ct = np.ma.masked_all((N, max_len))
-    # sa = np.ma.masked_all((N, max_len))
-    # lat = np.ma.masked_all(N)
-    # lon = np.ma.masked_all(N)
-    # juld = np.ma.masked_all(N)
-    # prof_no = np.zeros(N, dtype=int)
 
     for i, prof in enumerate(valid_profiles):
         L = len(prof["p"])
@@ -187,16 +189,19 @@ def load_data_csv_zip(path, profiles, interp=True, resolution=FIXED_RESOLUTION_M
         sa[i, :L] = prof["sa"]
         lat[i] = prof["lat"]
         lon[i] = prof["lon"]
-        juld[i] = prof["juld"]
+        dates[i] = prof["dates"]
         prof_no[i] = prof["prof_no"]
-
+    
     print(f"✅ Loaded {N} valid profile(s)")
+    if SKIPPED_DEPTH_FILES:
+        skipped_names = [os.path.basename(f) for f in SKIPPED_DEPTH_FILES]
+        print(f"⛔ Skipped {count} profiles due to depth threshold {depth_thres} m: {skipped_names}")
     print("📊 Final variable shapes:")
     print(f"  p.shape     = {p.shape}")
     print(f"  ct.shape    = {ct.shape}")
     print(f"  sa.shape    = {sa.shape}")
     print(f"  lat.shape   = {lat.shape}")
     print(f"  lon.shape   = {lon.shape}")
-    print(f"  juld.shape  = {juld.shape}")
+    print(f"  dates.shape  = {dates.shape}")
     print(f"  prof_no.shape = {prof_no.shape}")
-    return prof_no, p, lat, lon, ct, sa, juld
+    return prof_no, p, lat, lon, ct, sa, dates

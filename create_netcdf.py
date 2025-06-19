@@ -1,5 +1,6 @@
 import netCDF4 as netcdf
 import numpy as np
+import time
 
 from config import FIXED_RESOLUTION_METER
 
@@ -39,17 +40,18 @@ def create_netcdf(filename,max_count):
   x2.long_name     = 'Float ID'
   x2.standard_name = 'FloatID'
   
-  x2 = fh2.createVariable('juld','f4',('Nobs'),fill_value=0,zlib=True)
-  x2.long_name     = 'Julian date of profile'
-  x2.standard_name = 'juld'
-  x2.units         = 'days after 1950-01-01'
+  x2 = fh2.createVariable('dates','f8',('Nobs',),fill_value=0,zlib=True)
+  x2.long_name     = 'Profile date'
+  x2.standard_name = 'dates'
+  x2.units         = 'seconds since 1970-01-01T00:00:00Z'
+  x2.calendar     = 'gregorian'
   
-  x2 = fh2.createVariable('lon','f4',('Nobs'),fill_value=0,zlib=True)
+  x2 = fh2.createVariable('lon','f4',('Nobs',),fill_value=0,zlib=True)
   x2.long_name     = 'Longitude of float'
   x2.standard_name = 'lon'
   x2.units         = 'degrees'
   
-  x2 = fh2.createVariable('lat','f4',('Nobs'),fill_value=0,zlib=True)
+  x2 = fh2.createVariable('lat','f4',('Nobs',),fill_value=0,zlib=True)
   x2.long_name     = 'Latitude of float'
   x2.standard_name = 'lat'
   x2.units         = 'degrees'

@@ -9,11 +9,10 @@ import zipfile
 import warnings
 
 #import functions
-from data_preparation import *
+from data_preparation import load_data_csv_zip
 from create_netcdf import *
 # from staircase_detector import get_mixed_layers
 from staircase_detector import get_mixed_layers
-
 from config import FIXED_RESOLUTION_METER
 
 """
@@ -34,6 +33,14 @@ made by: Yujun Ling at UBC (Summer 2025)
 print('Ice tethered profiles')
 list1 = [f for f in os.listdir() if f.endswith('.zip')]
 floats=np.array(list1) 
+
+# Parameters for the staircase detection algorithm
+depth_thres = 450       # minimum depth threshold for valid profiles (in m)
+thres_ml_upper = 0.001  # gradient threshold for mixed layer detection 
+thres_int_lower = 0.005 # gradient threshold for interface detection
+layer_grid_length = 5   # minumum length of mixed layer in grid points (0.25m resolution)
+cl_length = 1.0         # maximum allowed length in meters 
+smooth_length = 7       # smoothing length in grid points (0.25m resolution)
 
 for i in range(len(list1)):
   zip_name = os.path.splitext(list1[i])[0]
@@ -56,9 +63,10 @@ for i in range(len(list1)):
               profiles.append(os.path.join(root, f))
           else: 
               warnings.warn(f"File {f} is not a CSV file and will be ignored.")
-              
-  prof_no, p, lat, lon, ct, sa, juld = load_data_csv_zip('', profiles, interp = False, resolution= FIXED_RESOLUTION_METER)
-  # prof_no,p,lat,lon,ct,sa,juld = load_data_itp('tmp/',profiles,True)
+  
+  
+  prof_no, p, lat, lon, ct, sa, dates = load_data_csv_zip('', profiles, interp = False, resolution= FIXED_RESOLUTION_METER, depth_thres=depth_thres)
+  
   shutil.rmtree('tmp/')  
   # print("Loaded profile count:", len(lat))
   # print("Latitude:", lat)
@@ -74,7 +82,7 @@ for i in range(len(list1)):
     lon   = lon[~np.all(np.isnan(ct), axis=1)]
     lat   = lat[~np.all(np.isnan(ct), axis=1)]
     sa    = sa[~np.all(np.isnan(ct), axis=1),:]
-    juld  = juld[~np.all(np.isnan(ct), axis=1)]
+    dates  = dates[~np.all(np.isnan(ct), axis=1)]
     prof_no = prof_no[~np.all(np.isnan(ct), axis=1)]
     ct    = ct[~np.all(np.isnan(ct), axis=1),:]
 
@@ -86,11 +94,7 @@ for i in range(len(list1)):
     
     if p.max()>0:
       #detection algorithm
-      thres_ml_upper = 0.005
-      thres_int_lower = 0.005
-      layer_grid_length = 5 # in grid points (0.25m resolution)
-      cl_length = 1.0 # in meters 
-      masks, depth_min_T, depth_max_T = get_mixed_layers(np.ma.copy(p),np.ma.copy(ct),thres_ml_upper,thres_int_lower, layer_grid_length, cl_length) 
+      masks, depth_min_T, depth_max_T = get_mixed_layers(np.ma.copy(p),np.ma.copy(ct),thres_ml_upper,thres_int_lower, layer_grid_length, cl_length, smooth_length) 
 
       fh2 = netcdf.Dataset(ncfile,'r+')
       t0 = len(fh2.variables['n'][:])
@@ -101,7 +105,7 @@ for i in range(len(list1)):
       fh2.variables['lat'][t0:t1]                 = lat
       fh2.variables['lon'][t0:t1]                 = lon
       fh2.variables['prof'][t0:t1]                = np.arange(len(lat))
-      fh2.variables['juld'][t0:t1]                = juld
+      fh2.variables['dates'][t0:t1]               = dates
       fh2.variables['ct'][t0:t1,:]                = ct
       fh2.variables['sa'][t0:t1,:]                = sa
       fh2.variables['FloatID'][t0:t1]             = prof_no
