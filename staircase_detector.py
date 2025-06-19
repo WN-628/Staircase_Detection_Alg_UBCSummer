@@ -246,10 +246,10 @@ def detect_layer_lengths(mask, p):
     runs : list
         If input is 2D (n_profiles × n_levels), returns a list of length n_profiles. Each element is
         a dict with keys:
-          'start_idx' : ndarray of int, start indices of each run
-          'end_idx'   : ndarray of int, end   indices of each run
-          'count'     : ndarray of int, number of grid points in each run
-          'thickness' : ndarray of float, physical thickness = p[end] - p[start] for each run
+            'start_idx' : ndarray of int, start indices of each run
+            'end_idx'   : ndarray of int, end   indices of each run
+            'count'     : ndarray of int, number of grid points in each run
+            'thickness' : ndarray of float, physical thickness = p[end] - p[start] for each run
 
         If input is 1D, returns a single dict (not wrapped in a list).
 
@@ -260,10 +260,10 @@ def detect_layer_lengths(mask, p):
     >>> p    = np.array([0., 1., 2., 3., 4.])
     >>> detect_layer_lengths(mask, p)
     {
-      'start_idx': array([1, 4]),
-      'end_idx':   array([2, 4]),
-      'count':     array([2, 1]),
-      'thickness': array([1., 0.])
+        'start_idx': array([1, 4]),
+        'end_idx':   array([2, 4]),
+        'count':     array([2, 1]),
+        'thickness': array([1., 0.])
     }
     """
     # Ensure 2D
@@ -363,8 +363,8 @@ def interface_height(p, mask_int, thres_height):
     return filtered[0] if is_1d else filtered
 
 def detect_mixed_layers_dual(p, ct, smooth_window,
-                            mixed_layer_threshold=0.0002,
-                            interface_threshold=0.005):
+                            mixed_layer_threshold,
+                            interface_threshold):
     """
     Detect mixed layers using smoothed CT, but detect interfaces on the raw CT based on temperature gradient.
 
@@ -427,10 +427,10 @@ def detect_mixed_layers_dual(p, ct, smooth_window,
     return mask_ml, mask_int
 
 def get_mixed_layers(p, ct,
-                    thres_ml=0.005,
-                    thres_int=0.005,
-                    min_run=3,
-                    mushy=1.0, smooth=11):
+                    thres_ml,
+                    thres_int,
+                    ml_min_depth=0.75, int_temp=0.01,
+                    cl_length=1.0, smooth=11):
     '''
     Identify mixed layers, interfaces, and staircase structures for data in `p` and `ct`.
 
@@ -459,7 +459,6 @@ def get_mixed_layers(p, ct,
     gap_ml = 2  # maximum number of consecutive False values in mask_ml to fill
     gap_int = 1  # maximum number of consecutive False values in mask_int to fill
     ml_temp = 0.005  # maximum threshold for mixed layer temperature width
-    int_temp = 0.01  # minimum threshold for interface temperature width
     ml_height = 3.0  # maximum height of mixed layer in meters
     
     # 0. find max‐T and first local min depths per profile
@@ -523,15 +522,18 @@ def get_mixed_layers(p, ct,
     mask_cl   = np.zeros_like(mask_ml,  dtype=bool)
     mask_sc   = np.zeros_like(mask_ml,  dtype=bool)
 
-    mushy_points = int(np.ceil(mushy / FIXED_RESOLUTION_METER))
+    cl_points = int(np.ceil(cl_length / FIXED_RESOLUTION_METER))
 
     # 3. prune short runs (thickness condition) :contentReference[oaicite:3]{index=3}
+    
+    ml_min_grid = int(np.ceil(ml_min_depth / FIXED_RESOLUTION_METER))
+    
     for i in range(n_prof):
         arr = np.zeros(n_lev, dtype=int)
         arr[mask_ml[i]]  = 1
         arr[mask_int[i]] = 2
 
-        cleaned = continuity(arr, min_run, mushy_points)
+        cleaned = continuity(arr, ml_min_grid, cl_points)
         clean_ml[i]  = (cleaned == 1)
         clean_int[i] = (cleaned == 2)
         mask_cl[i]   = (cleaned == 3)

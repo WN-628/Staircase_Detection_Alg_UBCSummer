@@ -5,6 +5,9 @@ import time
 from config import FIXED_RESOLUTION_METER
 
 def create_netcdf(filename,max_count):
+  
+  # --- Dimensions ---
+  
   fh2 = netcdf.Dataset(filename,'w',format='NETCDF4')
   fh2.createDimension('Nobs',None)
   x1 = fh2.createVariable('n', np.int32, ('Nobs'))
@@ -26,11 +29,19 @@ def create_netcdf(filename,max_count):
   x1.standard_name = 'MLD'
   x1[:]            = np.arange(0,int(max_count))
 
-  fh2.createDimension('gradient_layers',max_count-1)
+  fh2.createDimension('gradient_layers',max_count+1)
   x1 = fh2.createVariable('gradient_layers', 'f4', ('gradient_layers'),fill_value=0)
   x1.long_name     = 'Gradient-Layer-count'
   x1.standard_name = 'MLD'
-  x1[:]            = np.arange(0,int(max_count)-1)
+  x1[:]            = np.arange(0,int(max_count)+1)
+  
+  fh2.createDimension('staircase_structures',max_count)
+  x1 = fh2.createVariable('staircase_structures', 'f4', ('staircase_structures'),fill_value=0)
+  x1.long_name     = 'Staircase-Structure-count'
+  x1.standard_name = 'staircase_structures'
+  x1[:]            = np.arange(0,int(max_count))
+  
+  # --- Variables ---
   
   x2 = fh2.createVariable('prof',np.int32, ('Nobs'),fill_value=0,zlib=True)
   x2.long_name     = 'Profile number of float'
@@ -44,7 +55,7 @@ def create_netcdf(filename,max_count):
   x2.long_name     = 'Profile date'
   x2.standard_name = 'dates'
   x2.units         = 'seconds since 1970-01-01T00:00:00Z'
-  x2.calendar     = 'gregorian'
+  x2.calendar      = 'gregorian'
   
   x2 = fh2.createVariable('lon','f4',('Nobs',),fill_value=0,zlib=True)
   x2.long_name     = 'Longitude of float'
@@ -98,118 +109,9 @@ def create_netcdf(filename,max_count):
   x2.long_name     = 'mask with sequences of staircase structure'
   x2.standard_name = 'mask_sc'
   x2.units         = ' '
-
-  # # mixed layers
-  # x2 = fh2.createVariable('ml_T','f4',('Nobs','mixed_layers'),fill_value=0,zlib=True)
-  # x2.long_name     = 'average temperature of the mixed layer'
-  # x2.standard_name = 'ml_T'
-  # x2.units         = 'degrees Celsius'
- 
-  # x2 = fh2.createVariable('ml_S','f4',('Nobs','mixed_layers'),fill_value=0,zlib=True)
-  # x2.long_name     = 'average salinity of the mixed layer'
-  # x2.standard_name = 'ml_S'
-  # x2.units         = 'g kg-1'
- 
-  # x2 = fh2.createVariable('ml_r','f4',('Nobs','mixed_layers'),fill_value=0,zlib=True)
-  # x2.long_name     = 'average density of the mixed layer (sigma1)'
-  # x2.standard_name = 'ml_r'
-  # x2.units         = 'kg m-3'
-
-  # x2 = fh2.createVariable('ml_p','f4',('Nobs','mixed_layers'),fill_value=0,zlib=True)
-  # x2.long_name     = 'average pressure of the mixed layer'
-  # x2.standard_name = 'ml_p'
-  # x2.units         = 'dbar'
-
-  # x2 = fh2.createVariable('ml_h','f4',('Nobs','mixed_layers'),fill_value=0,zlib=True)
-  # x2.long_name     = 'height of the mixed layer'
-  # x2.standard_name = 'ml_h'
-  # x2.units         = 'dbar'
- 
-  # x2 = fh2.createVariable('ml_Tu','f4',('Nobs','mixed_layers'),fill_value=0,zlib=True)
-  # x2.long_name     = 'average Turner aninte of the mixed layer'
-  # x2.standard_name = 'ml_Tu'
-  # x2.units         = 'degrees'
-
-  # x2 = fh2.createVariable('ml_R','f4',('Nobs','mixed_layers'),fill_value=0,zlib=True)
-  # x2.long_name     = 'average density ratio of the mixed layer'
-  # x2.standard_name = 'ml_R'
-  # x2.units         = ' '
-
-  # #interface variables
-  # x2 = fh2.createVariable('int_dT','f4',('Nobs','gradient_layers'),fill_value=0,zlib=True)
-  # x2.long_name     = 'temperature difference in interface'
-  # x2.standard_name = 'int_dT'
-  # x2.units         = 'degrees Celsius'
-
-  # x2 = fh2.createVariable('int_dS','f4',('Nobs','gradient_layers'),fill_value=0,zlib=True)
-  # x2.long_name     = 'salinity difference in interface'
-  # x2.standard_name = 'int_dS'
-  # x2.units         = 'g kg-1'
-
-  # x2 = fh2.createVariable('int_dr','f4',('Nobs','gradient_layers'),fill_value=0,zlib=True)
-  # x2.long_name     = 'density difference in interface (sigma1)'
-  # x2.standard_name = 'int_dr'
-  # x2.units         = 'kg m-3 dbar-1'
-
-  # x2 = fh2.createVariable('int_h','f4',('Nobs','gradient_layers'),fill_value=0,zlib=True)
-  # x2.long_name     = 'interface height'
-  # x2.standard_name = 'int_h'
-  # x2.units         = 'dbar'
-
-  # x2 = fh2.createVariable('int_Tu','f4',('Nobs','gradient_layers'),fill_value=0,zlib=True)
-  # x2.long_name     = 'average Turner aninte of the interface'
-  # x2.standard_name = 'int_Tu'
-  # x2.units         = 'degrees'
-
-  # x2 = fh2.createVariable('int_R','f4',('Nobs','gradient_layers'),fill_value=0,zlib=True)
-  # x2.long_name     = 'average density ratio of the interface'
-  # x2.standard_name = 'int_R'
-  # x2.units         = ' '
-
+  
+  
+  
+  
+  
   fh2.close()
-
-
-
-
-
-  # x2 = fh2.createVariable('mask_int_sf_layer',np.int32,('Nobs','gradient_layers'),fill_value=0,zlib=True)
-  # x2.long_name     = 'mask with sequences of interfaces in salt-finger regime'
-  # x2.standard_name = 'mask_int_sf_layer'
-  # x2.units         = ' '
-
-  # x2 = fh2.createVariable('mask_ml_sf_layer',np.int32,('Nobs','mixed_layers'),fill_value=0,zlib=True)
-  # x2.long_name     = 'mask with sequences of mixed layers in salt-finger regime'
-  # x2.standard_name = 'mask_ml_sf_layer'
-  # x2.units         = ' '
-
-  # x2 = fh2.createVariable('mask_int_sf',np.int32,('Nobs','pressure'),fill_value=0,zlib=True)
-  # x2.long_name     = 'big mask with sequences of interfaces in salt-finger regime'
-  # x2.standard_name = 'mask_int_sf'
-  # x2.units         = ' '
-
-  # x2 = fh2.createVariable('mask_ml_sf',np.int32,('Nobs','pressure'),fill_value=0,zlib=True)
-  # x2.long_name     = 'big mask with sequences of mixed layers in salt-finger regime'
-  # x2.standard_name = 'mask_ml_sf'
-  # x2.units         = ' '
-
-  # x2 = fh2.createVariable('mask_int_dc_layer',np.int32,('Nobs','gradient_layers'),fill_value=0,zlib=True)
-  # x2.long_name     = 'mask with sequences of interfaces in diffusive-convection regime'
-  # x2.standard_name = 'mask_int_dc_layer'
-  # x2.units         = ' '
-
-  # x2 = fh2.createVariable('mask_ml_dc_layer',np.int32,('Nobs','mixed_layers'),fill_value=0,zlib=True)
-  # x2.long_name     = 'mask with sequences of mixed layers in diffusive-convection regime'
-  # x2.standard_name = 'mask_ml_dc_layer'
-  # x2.units         = ' '
-
-  # x2 = fh2.createVariable('mask_int_dc',np.int32,('Nobs','pressure'),fill_value=0,zlib=True)
-  # x2.long_name     = 'big mask with sequences of interfaces in diffusive-convection regime'
-  # x2.standard_name = 'mask_int_dc'
-  # x2.units         = ' '
-
-  # x2 = fh2.createVariable('mask_ml_dc',np.int32,('Nobs','pressure'),fill_value=0,zlib=True)
-  # x2.long_name     = 'big mask with sequences of mixed layers in diffusive-convection regime'
-  # x2.standard_name = 'mask_ml_dc'
-  # x2.units         = ' '
-
-

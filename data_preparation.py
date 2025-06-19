@@ -80,7 +80,7 @@ def load_data_mat_zip(path, profiles, interp=True, resolution=FIXED_RESOLUTION_M
 
     return prof_no, p, lat, lon, ct, sa, juld
 
-def load_data_csv_zip(path, profiles, interp=True, resolution=FIXED_RESOLUTION_METER, depth_thres=450):
+def load_data_csv_zip(path, profiles, interp=True, resolution=FIXED_RESOLUTION_METER):
     valid_profiles = []
     target_levels = np.arange(0, 2000, resolution)
     
@@ -102,8 +102,8 @@ def load_data_csv_zip(path, profiles, interp=True, resolution=FIXED_RESOLUTION_M
             
             # --- Metadata etraction from first line ---
             # Latitude and longtitude: one value per profile
-            lat = float(df['lat'].iloc[0]) if 'lat' in df.columns else 0.0  # Edited: read from first row
-            lon = float(df['lon'].iloc[0]) if 'lon' in df.columns else 0.0  # Edited: read from first row
+            lat = float(df['latitude'].iloc[1]) if 'latitude' in df.columns else 0.0  # Edited: read from first row
+            lon = float(df['longitude'].iloc[1]) if 'longitude' in df.columns else 0.0  # Edited: read from first row
             # parse date, convert to seconds since epoch
             if 'startdate' in df.columns:
                 raw = df['startdate'].iloc[0]
@@ -120,11 +120,11 @@ def load_data_csv_zip(path, profiles, interp=True, resolution=FIXED_RESOLUTION_M
             print(f"❌ Failed to read {fname}: {e}")
             continue
         
-        if pressure.size == 0 or pressure.max() <= depth_thres:
-            count += 1
-            SKIPPED_DEPTH_FILES.append(fname)
-            # print(f"⛔ Skipping {fname}: invalid pressure range")
-            continue
+        # if pressure.size == 0 or pressure.max() <= depth_thres:
+        #     count += 1
+        #     SKIPPED_DEPTH_FILES.append(fname)
+        #     # print(f"⛔ Skipping {fname}: invalid pressure range")
+        #     continue
         
         try:
             if interp:

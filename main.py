@@ -11,9 +11,10 @@ import warnings
 #import functions
 from data_preparation import load_data_csv_zip
 from create_netcdf import *
-# from staircase_detector import get_mixed_layers
 from staircase_detector import get_mixed_layers
 from config import FIXED_RESOLUTION_METER
+
+from after_detector import *
 
 """
 Script to detect 
@@ -35,12 +36,19 @@ list1 = [f for f in os.listdir() if f.endswith('.zip')]
 floats=np.array(list1) 
 
 # Parameters for the staircase detection algorithm
-depth_thres = 450       # minimum depth threshold for valid profiles (in m)
-thres_ml_upper = 0.001  # gradient threshold for mixed layer detection 
-thres_int_lower = 0.005 # gradient threshold for interface detection
-layer_grid_length = 5   # minumum length of mixed layer in grid points (0.25m resolution)
-cl_length = 1.0         # maximum allowed length in meters 
-smooth_length = 7       # smoothing length in grid points (0.25m resolution)
+# depth_thres = 450      # minimum depth threshold for valid profiles (in m)
+thres_ml_upper  = 0.002  # gradient threshold for mixed layer detection 
+thres_int_lower = 0.005  # gradient threshold for interface detection
+ml_min_length   = 0.75   # minumum length of mixed layer in depth (in m)
+int_min_temp    = 0.01   # minimum threshold for interface temperature width (in °C)
+cl_length       = 1.0    # maximum allowed length for connecting layers (in m)
+smooth_length   = 7      # smoothing length in grid points (0.25m resolution)
+
+# Parameters inside get_mixed_layers function
+gap_ml = 2        # maximum number of consecutive False values in mask_ml to fill
+gap_int = 1       # maximum number of consecutive False values in mask_int to fill
+ml_temp = 0.005   # maximum threshold for mixed layer temperature width
+ml_height = 3.0   # maximum height of mixed layer in meters
 
 for i in range(len(list1)):
   zip_name = os.path.splitext(list1[i])[0]
@@ -64,8 +72,7 @@ for i in range(len(list1)):
           else: 
               warnings.warn(f"File {f} is not a CSV file and will be ignored.")
   
-  
-  prof_no, p, lat, lon, ct, sa, dates = load_data_csv_zip('', profiles, interp = False, resolution= FIXED_RESOLUTION_METER, depth_thres=depth_thres)
+  prof_no, p, lat, lon, ct, sa, dates = load_data_csv_zip('', profiles, interp = False, resolution= FIXED_RESOLUTION_METER)
   
   shutil.rmtree('tmp/')  
   # print("Loaded profile count:", len(lat))
@@ -94,7 +101,7 @@ for i in range(len(list1)):
     
     if p.max()>0:
       #detection algorithm
-      masks, depth_min_T, depth_max_T = get_mixed_layers(np.ma.copy(p),np.ma.copy(ct),thres_ml_upper,thres_int_lower, layer_grid_length, cl_length, smooth_length) 
+      masks, depth_min_T, depth_max_T = get_mixed_layers(np.ma.copy(p),np.ma.copy(ct),thres_ml_upper,thres_int_lower, ml_min_length, int_min_temp, cl_length, smooth_length) 
 
       fh2 = netcdf.Dataset(ncfile,'r+')
       t0 = len(fh2.variables['n'][:])
@@ -123,6 +130,8 @@ for i in range(len(list1)):
       fh2.variables['depth_min_T'][t0:t1] = depth_min_T
       
       fh2.close()
+
+
 
       # # mixed layer characteristics
       # fh2.variables['ml_h'][t0:t1,:]              = ml.height
