@@ -3,7 +3,7 @@ import netCDF4 as nc
 import numpy as np
 
 # Configuration
-file_path = 'itp65cormat.nc'  # Update with your NetCDF file path
+file_path = 'itp113cormat.nc'  # Update with your NetCDF file path
 ds = nc.Dataset(file_path)
 itp = 'ITP65'  # Update with your ITP name if needed
 
@@ -17,7 +17,7 @@ print("\n=== Variables ===")
 for var_name, var in ds.variables.items():
     print(f"{var_name}: shape = {var.shape}, dtype = {var.dtype}")
 
-prof_no = 384              # Profile index to plot
+prof_no = 1              # Profile index to plot
 
 profile_ids = ds.variables['FloatID'][:]  # 1D array of profile IDs
 if prof_no in profile_ids:
