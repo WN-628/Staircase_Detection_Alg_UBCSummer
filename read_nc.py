@@ -3,9 +3,9 @@ import netCDF4 as nc
 import numpy as np
 
 # Configuration
-file_path = 'itp113cormat.nc'  # Update with your NetCDF file path
+file_path = 'nc_files/itp1cormat.nc'  # Update with your NetCDF file path
 ds = nc.Dataset(file_path)
-itp = 'ITP65'  # Update with your ITP name if needed
+itp = 'ITP1'  # Update with your ITP name if needed
 
 # Print dimensions
 print("=== Dimensions ===")
@@ -29,7 +29,7 @@ mask_ml_all = ds.variables['mask_ml'][:].astype(bool)
 
 # Determine which profiles have any mixed-layer points
 profiles_with_ml = profile_ids[np.any(mask_ml_all, axis=1)]
-print(f"Profiles with mixed layer detected: {profiles_with_ml.tolist()}")
+print(f"Profiles with mixed layer detected: {sorted(profiles_with_ml.tolist())}")
 
 # Dates
 time_var  = ds.variables['dates']  # dates in create_netcdf.py are Gregorian

@@ -4,7 +4,7 @@ from after_detector import count, extract_length, extract_temp_width
 import matplotlib.pyplot as plt
 
 # 1. Open the file you wrote in main.py
-ds = nc.Dataset('itp65cormat.nc', 'r')
+ds = nc.Dataset('nc_files/itp65cormat.nc', 'r')
 # print(list(ds.variables.keys()))
 
 # 3. Read it properly
