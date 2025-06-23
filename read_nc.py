@@ -3,9 +3,9 @@ import netCDF4 as nc
 import numpy as np
 
 # Configuration
-file_path = 'nc_files/itp1cormat.nc'  # Update with your NetCDF file path
+file_path = 'itp65cormat.nc'  # Update with your NetCDF file path
 ds = nc.Dataset(file_path)
-itp = 'ITP1'  # Update with your ITP name if needed
+itp = 'ITP65'  # Update with your ITP name if needed
 
 # Print dimensions
 print("=== Dimensions ===")
@@ -43,6 +43,9 @@ mask_ml = ds.variables['mask_ml'][prof_idx, :].astype(bool)
 mask_int = ds.variables['mask_int'][prof_idx, :].astype(bool)
 mask_cl = ds.variables['mask_cl'][prof_idx, :].astype(bool)    
 
+cl_mushy = ds.variables['cl_mushy'][prof_idx, :].astype(bool)
+cl_supermushy = ds.variables['cl_supermushy'][prof_idx, :].astype(bool)
+
 dmax = ds.variables['depth_max_T'][prof_idx]
 dmin = ds.variables['depth_min_T'][prof_idx]
 
@@ -74,7 +77,10 @@ plt.plot(ct, pressure, linewidth=1, label='Temperature')
 # Scatter masks: ml, int, cl
 plt.scatter(ct[mask_ml], pressure[mask_ml], s=20, label='Mixed Layer (ml)')
 plt.scatter(ct[mask_int], pressure[mask_int], s=20, label='Interface (int)')
-plt.scatter(ct[mask_cl], pressure[mask_cl], s=20, label='Connection Layer (cl)')
+# plt.scatter(ct[mask_cl], pressure[mask_cl], s=20, label='Connection Layer (cl)')
+
+plt.scatter(ct[cl_mushy], pressure[cl_mushy], marker='*', s=60, label='CL – Mushy')
+plt.scatter(ct[cl_supermushy], pressure[cl_supermushy], marker='x', s=60, label='CL – Supermushy')
 
 plt.axhline(dmax, linestyle='--', label=f'Depth of Max CT: {dmax:.1f} m')
 plt.axhline(dmin, linestyle='--', label=f'Depth of Min CT: {dmin:.1f} m')

@@ -6,6 +6,9 @@ import os
 total_profiles = 0
 profiles_with_staircase = 0
 
+# This script scans all .nc files in the current directory to count profiles
+# with at least one staircase mask.
+
 # Loop over every .nc file in the current folder
 for fname in glob.glob('*.nc'):
     with nc.Dataset(fname, 'r') as ds:

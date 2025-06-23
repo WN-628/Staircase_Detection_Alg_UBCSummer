@@ -4,13 +4,14 @@ import zipfile
 import warnings
 
 import numpy as np
-import netCDF4 as netcdf
+# import netCDF4 as netcdf
 
 from data_preparation import load_data_csv_zip
 from create_netcdf import create_netcdf
 from staircase_detector import get_mixed_layers
 from config import FIXED_RESOLUTION_METER
 from after_detector import *
+from check_sharpness import check_sharpness
 
 """
 Script to detect thermohaline staircases in Ice Tethered Profiler data.
@@ -93,6 +94,8 @@ for zip_name in zip_files:
         ml_min_length, int_min_temp,
         cl_length, smooth_length
     )
+    
+    cl_mushy, cl_supermushy = check_sharpness(masks.cl, cl_length)
 
     # 9) Write to NetCDF
     t0, t1 = 0, N
@@ -113,5 +116,8 @@ for zip_name in zip_files:
 
     fh.variables['depth_max_T'][t0:t1]  = depth_max_T
     fh.variables['depth_min_T'][t0:t1]  = depth_min_T
+    
+    fh.variables['cl_mushy'][t0:t1, :] = cl_mushy
+    fh.variables['cl_supermushy'][t0:t1, :] = cl_supermushy
 
     fh.close()
