@@ -22,59 +22,58 @@ profiles_with_cl_supermushy = 0
 # Store lists of profiles without any connection layers
 stairs_no_cl_list = {}
 
-# Process each file
 for fname in nc_files:
     basename = os.path.basename(fname)
     with nc.Dataset(fname, 'r') as ds:
-        mask_sc = ds.variables['mask_sc'][:].astype(bool)
-        cl_mushy = ds.variables['cl_mushy'][:].astype(bool)
-        cl_supermushy = ds.variables['cl_supermushy'][:].astype(bool)
-        float_ids = ds.variables['FloatID'][:]
+        # vlen masks: each ds.variables['mask_sc'][i] is a 1D int8 array
+        mask_sc_var       = ds.variables['mask_sc']
+        cl_mushy_var      = ds.variables['cl_mushy']
+        cl_supermushy_var = ds.variables['cl_supermushy']
+        float_ids         = ds.variables['FloatID'][:]
 
-        n_profiles = mask_sc.shape[0]
+        n_profiles = mask_sc_var.shape[0]
         total_profiles += n_profiles
 
-        # Determine profiles with any staircase
-        has_sc = np.any(mask_sc, axis=1)
-        sc_indices = np.where(has_sc)[0]
-        count_sc = len(sc_indices)
+        # Determine for each profile whether it has any staircase points
+        has_sc = []
+        for i in range(n_profiles):
+            arr = np.array(mask_sc_var[i], dtype=bool)   # vlen → nd array
+            has_sc.append(arr.any())
+        count_sc = sum(has_sc)
         profiles_with_staircase += count_sc
 
-        # Determine profiles with cl_mushy
-        has_cl_m = np.any(cl_mushy, axis=1)
-        count_cl_m = np.count_nonzero(has_cl_m)
+        # Determine for each profile whether it has any mushy connection layers
+        has_cl_m = []
+        for i in range(n_profiles):
+            arr = np.array(cl_mushy_var[i], dtype=bool)
+            has_cl_m.append(arr.any())
+        count_cl_m = sum(has_cl_m)
         profiles_with_cl_mushy += count_cl_m
 
-        # Determine profiles with cl_supermushy
-        has_cl_sm = np.any(cl_supermushy, axis=1)
-        count_cl_sm = np.count_nonzero(has_cl_sm)
+        # Determine for each profile whether it has any super-mushy connection layers
+        has_cl_sm = []
+        for i in range(n_profiles):
+            arr = np.array(cl_supermushy_var[i], dtype=bool)
+            has_cl_sm.append(arr.any())
+        count_cl_sm = sum(has_cl_sm)
         profiles_with_cl_supermushy += count_cl_sm
 
-        # Profiles with staircase but no connection layer
-        no_cl_mask = has_sc & ~has_cl_m & ~has_cl_sm
-        no_cl_indices = np.where(no_cl_mask)[0]
+        # Profiles with staircases but *no* connection layers at all
+        no_cl_mask = [has_sc[i] and not has_cl_m[i] and not has_cl_sm[i]
+                      for i in range(n_profiles)]
+        no_cl_indices = [i for i, flag in enumerate(no_cl_mask) if flag]
         count_no_cl = len(no_cl_indices)
         profiles_stair_no_cl += count_no_cl
 
-        # Capture the FloatID values for these profiles
-        stairs_no_cl_ids = float_ids[no_cl_indices] if count_no_cl > 0 else []
-        if count_no_cl > 0:
-            stairs_no_cl_list[basename] = stairs_no_cl_ids.tolist()
+        # Record their FloatID values
+        if count_no_cl:
+            stairs_no_cl_list[basename] = float_ids[no_cl_indices].tolist()
 
-        # # Print per-file summary
-        # print(
-        #     f"{basename}: {n_profiles} profiles, "
-        #     f"{count_sc} with staircases, "
-        #     f"{count_no_cl} with staircases but no cl, "
-        #     f"{count_cl_m} with cl_mushy, "
-        #     f"{count_cl_sm} with cl_supermushy"
-        # )
-
-# Print detailed list of ITPs and profile IDs without connection layers
+# Print detailed list
 if stairs_no_cl_list:
     print("\nProfiles with staircases but no connection layers:")
     for fname, id_list in stairs_no_cl_list.items():
-        print(f"- {fname}: {len(id_list)} profiles -> IDs: {id_list}")
+        print(f"- {fname}: {len(id_list)} profiles → IDs: {id_list}")
 else:
     print("\nNo profiles found with staircases but no connection layers.")
 
