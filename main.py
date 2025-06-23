@@ -75,7 +75,7 @@ for zip_name in zip_files:
     with zipfile.ZipFile(src_zip, 'r') as z:
         z.extractall(tmp_dir)
     # Optionally remove the original zip to clean up
-    os.remove(src_zip)
+    # os.remove(src_zip)
 
     # 2) Gather profile files
     profiles = []
@@ -109,56 +109,77 @@ for zip_name in zip_files:
     ct  = np.ma.masked_all((N, max_len))
     sa  = np.ma.masked_all((N, max_len))
 
-    # 6) Populate arrays
     for i in range(N):
-        valid = ~np.ma.getmaskarray(p_raw[i])
+        valid = valid_mask[i]
         L = valid.sum()
         p[i, :L]  = p_raw[i, valid]
         ct[i, :L] = ct_raw[i, valid]
         sa[i, :L] = sa_raw[i, valid]
 
-    # Clean up temporary files
+    # Clean up temp files
     shutil.rmtree(tmp_dir)
 
-    # 7) Create NetCDF file
-    fh = create_netcdf(out_ncfile, max_len)
+    # 5) Create NetCDF file (vlen types expected)
+    fh = create_netcdf(out_ncfile, _nlevels_unused=None)
 
-    # 8) Run detection
+    # 6) Run staircase detection
     masks, depth_min_T, depth_max_T = get_mixed_layers(
         np.ma.copy(p), np.ma.copy(ct),
         thres_ml_upper, thres_int_lower,
         ml_min_length, int_min_temp,
         cl_length, smooth_length
     )
-    
-    # Check sharpness of the mixed layer
     cl_mushy, cl_supermushy = check_sharpness(masks.cl, cl_length)
 
-    # 9) Write to NetCDF
-    t0, t1 = 0, N
-    fh.variables['lat'][t0:t1]         = lat
-    fh.variables['lon'][t0:t1]         = lon
-    fh.variables['prof'][t0:t1]        = np.arange(N, dtype=np.int32)
-    fh.variables['dates'][t0:t1]       = dates
-    fh.variables['FloatID'][t0:t1]     = prof_no
+    # 7) Write scalar metadata and outputs
+    fh.variables['lat'][:]      = lat
+    fh.variables['lon'][:]      = lon
+    fh.variables['dates'][:]    = dates
+    fh.variables['FloatID'][:]  = prof_no
 
-    fh.variables['pressure'][t0:t1, :] = p.filled(np.nan)
-    fh.variables['ct'][t0:t1, :]       = ct.filled(np.nan)
-    fh.variables['sa'][t0:t1, :]       = sa.filled(np.nan)
+    # fh.variables['cl_mushy'][:]      = cl_mushy
+    # fh.variables['cl_supermushy'][:] = cl_supermushy
+    fh.variables['depth_max_T'][:]   = depth_max_T
+    fh.variables['depth_min_T'][:]   = depth_min_T
 
-    fh.variables['mask_ml'][t0:t1, :]  = masks.ml
-    fh.variables['mask_int'][t0:t1, :] = masks.int
-    fh.variables['mask_cl'][t0:t1, :]  = masks.cl
-    fh.variables['mask_sc'][t0:t1, :]  = masks.sc
+    # 8) Write variable-length profiles and masks
+    p_var     = fh.variables['pressure']
+    ct_var    = fh.variables['ct']
+    sa_var    = fh.variables['sa']
+    ml_var    = fh.variables['mask_ml']
+    int_var   = fh.variables['mask_int']
+    cl_var    = fh.variables['mask_cl']
+    sc_var    = fh.variables['mask_sc']
+    clm       = fh.variables['cl_mushy']
+    clsm      = fh.variables['cl_supermushy']
     
-    fh.variables['cl_mushy'][t0:t1, :] = cl_mushy
-    fh.variables['cl_supermushy'][t0:t1, :] = cl_supermushy
-
-    fh.variables['depth_max_T'][t0:t1] = depth_max_T
-    fh.variables['depth_min_T'][t0:t1] = depth_min_T
+    valid_mask = ~np.ma.getmaskarray(p)
+    for i in range(N):
+        vm = valid_mask[i]
+        p_var[i]   = p[i, vm].data.astype(np.float32)
+        ct_var[i]  = ct[i, vm].data
+        sa_var[i]  = sa[i, vm].data
+        ml_var[i]  = masks.ml[i, vm]
+        int_var[i] = masks.int[i, vm]
+        cl_var[i]  = masks.cl[i, vm]
+        sc_var[i]  = masks.sc[i, vm]
+        clm[i]     = cl_mushy[i, vm]
+        clsm[i]    = cl_supermushy[i, vm]
 
     fh.close()
+    print(f"✅ Processed {base}: {N} profiles → {out_ncfile}")
 
 # Final summary
 print(f"✅ Processing complete. NC files are in '{OUTPUT_DIR}'.")
 print(f"Processed {processed_zip_count} zip files with a total of {total_valid_profiles} valid profiles.")
+
+# --- Post-run check on valid pressure data ---
+# Only inspect unmasked entries to ensure no NaN
+try:
+    valid_pressures = p.data[~p.mask]
+    if np.isnan(valid_pressures).any():
+        print("⚠️ Warning: NaN found in valid pressure data of 'p'.")
+    else:
+        print("✅ No NaN in valid pressure data of 'p'.")
+except NameError:
+    pass

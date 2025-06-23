@@ -3,7 +3,7 @@ import netCDF4 as nc
 import numpy as np
 
 # Configuration
-file_path = 'prod_files/itp123cormat.nc'  # Update with your NetCDF file path
+file_path = 'prod_files/itp65cormat.nc'  # Update with your NetCDF file path
 ds = nc.Dataset(file_path)
 itp = 'ITP18'  # Update with your ITP name if needed
 

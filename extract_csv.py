@@ -1,34 +1,52 @@
+#!/usr/bin/env python3
 import netCDF4 as nc
 import numpy as np
 import pandas as pd
 
-# 1. Open your NetCDF
-ds = nc.Dataset('itp65cormat.nc', 'r')
+# Script to extract the profile for FloatID = 1 from 'itp65cormat.nc'
+# and check for NaN values in the pressure array.
 
-# 2. Read variables
-ct_vals     = ds.variables['ct'][:]       # shape: (n_profiles, n_levels)
-profile_ids = ds.variables['FloatID'][:]  # shape: (n_profiles,)
-pressure    = ds.variables['pressure'][:] # shape: (n_levels,)
+ncfile = 'itp65cormat.nc'
+ds = nc.Dataset(ncfile, 'r')
 
-# 3. Choose your profile ID
-profile = 492  # ← change to the FloatID you want
+# Read FloatID array and locate the index for ID=1
+float_ids = ds.variables['FloatID'][:]
+fid = 2
+indices = np.where(float_ids == fid)[0]
+if indices.size == 0:
+    print(f"⚠️ FloatID {fid} not found in {ncfile}.")
+    print("📋 Available FloatIDs:", sorted(float_ids.tolist()))
+    ds.close()
+    import sys; sys.exit(1)
+idx = int(indices[0])
 
-# 4. Find its index
-idx = np.where(profile_ids == profile)[0]
-if idx.size == 0:
-    raise ValueError(f"Profile {profile} not found in FloatID")
-i = idx[0]
+# Extract vlen arrays for FloatID=1
+p_profile  = ds.variables['pressure'][idx]
+ct_profile = ds.variables['ct'][idx]
 
-# 5. Extract that row of CT
-ct_profile = ct_vals[i, :]
+# Salinity if available
+sa_profile = None
+if 'sa' in ds.variables:
+    sa_profile = ds.variables['sa'][idx]
 
-# 6. Build a DataFrame of pressure vs. ct
-df = pd.DataFrame({
-    'pressure_m': pressure,
+# Check for NaNs in pressure profile
+if np.isnan(p_profile).any():
+    print(f"⚠️ Warning: NaN values found in pressure for FloatID {fid}")
+else:
+    print(f"✅ No NaN values in pressure for FloatID {fid}")
+
+# Build DataFrame for output
+data = {
+    'pressure_m': p_profile,
     'ct_degC':    ct_profile
-})
+}
+if sa_profile is not None:
+    data['sa_g_per_kg'] = sa_profile
 
-# 7. Export
-csv_name = f'ct_profile_{profile}.csv'
-df.to_csv(csv_name, index=False)
-print(f"Wrote {len(df)} levels for profile {profile} → {csv_name}")
+df = pd.DataFrame(data)
+
+# Write single CSV for FloatID=1
+df.to_csv(f'ct_profile_{fid}.csv', index=False)
+print(f"Wrote {len(df)} levels for FloatID {fid} → ct_profile_{fid}.csv")
+
+ds.close()
