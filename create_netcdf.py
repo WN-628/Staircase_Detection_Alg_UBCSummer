@@ -34,8 +34,6 @@ def create_netcdf(filename, _nlevels_unused=None):
     prof_id.long_name = 'Profile identifier'
 
     # Detection scalar outputs
-    
-
     depth_max_T_var = fh.createVariable('depth_max_T', np.float32, ('Nobs',))
     depth_max_T_var.long_name = 'Thermocline maximum depth'
     depth_max_T_var.units     = 'm'
