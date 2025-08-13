@@ -1,5 +1,7 @@
 # Thermohaline Staircase Detection Pipeline
 
+https://doi.org/10.5194/essd-13-43-2021
+
 ## Overview
 
 This repository implements an end-to-end workflow for detecting thermohaline staircases in oceanographic profile data:

@@ -3,8 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # ── USER CONFIG ─────────────────────────────────────────
-nc_path   = 'prod_files/itp18cormat.nc'
-target_id = 281
+nc_path   = 'prod_files/itp65cormat.nc'
+target_id = 6
 # ────────────────────────────────────────────────────────
 
 # 1) open and find the profile index
